@@ -1,0 +1,281 @@
+# Reusable Search Modal Flow (Design + How It Works)
+
+This document explains the standardized, reusable search modal architecture currently used by:
+
+- Toys main search modal
+- Member search modal
+
+It is intended as a reference when adding additional search modals (e.g., Vendors, Departments, etc.).
+
+---
+
+## 1) High-level goal
+
+We want multiple search modals to share the same behavior and UI wiring:
+
+- Load modal HTML on demand (lazy-load)
+- Load modal JS modules only once
+- Use the same element IDs inside each modal include
+- Use standardized custom events so all modals behave the same way
+- Keep entity-specific logic (fetching data, rendering rows, confirming selection) in the entity’s `*-fetch.js`
+
+---
+
+## 2) Files involved
+
+### A. Entry (one per modal)
+Example:
+- `member_search_modal.entry.js`
+- `toysmain_search_modal.entry.js`
+
+Responsibilities:
+- Configure the modal: `modalId`, `includePath`, scripts to load
+- Provide a `show...()` function to open the modal
+
+Key config values:
+- `modalId`: must match the root `<div id="...">` inside the include HTML
+- `includePath`: HTML fragment inserted into `<body>`
+- `scripts[]`: module scripts loaded once
+- `readyEvent`: dispatched once the include HTML is inserted (used for safe binding)
+- selectors:
+  - `.close` (X)
+  - `#closeButtonModal`
+  - `#selectButtonModal`
+  - `#searchFieldModal`
+
+---
+
+### B. Reusable modal controller (shared)
+File:
+- `reusable_search_modal.js`
+
+Responsibilities:
+- Fetch and insert the modal include HTML into `document.body` if not present
+- Load scripts listed in `scripts[]` only once
+- Bind close behavior:
+  - close on X click
+  - close on Close button click
+  - close on background click
+  - ESC behavior:
+    - if search has text: clear search field and trigger filter update
+    - otherwise: close modal
+- Bind Select button behavior:
+  - enabled/disabled based on row selection events
+  - dispatch confirm selection event when clicked
+- Dispatch table load request event when modal is shown
+
+---
+
+### C. Include HTML (one per modal)
+Example:
+- `memberSearchModal_Include.html`
+- `toysmainSearchModal_Include.html`
+
+**Standard IDs inside each modal include** (must match exactly):
+- `#searchFieldModal`
+- `#closeButtonModal`
+- `#selectButtonModal`
+- `#tableBodyModal`  ✅ this must be the `<tbody>` id
+
+Sortable headers use:
+- `<th data-column="FieldName">...</th>`
+
+Root element:
+- `<div id="{modalId}" class="modal hidden" tabindex="-1" data-autofocus="#searchFieldModal">`
+
+---
+
+### D. Entity fetch/table controller (one per modal)
+Example:
+- `membersearchtableview-fetch.js`
+- `toysmainsearchtableview-fetch.js`
+
+Responsibilities:
+- React to standardized modal events for **this modalId**:
+  - load data
+  - handle confirm selection (fetch full record, update storage, dispatch update event)
+- Manage state:
+  - `allRecords`, `filteredRecords`, `selectedRecord`
+- Render table rows into `#tableBodyModal`
+- Dispatch selection status so Select button can be enabled
+
+Entity fetch files generally contain:
+- `loadX()` to fetch list data
+- `renderTable()` to render current list
+- `selectRow()` to set selection and dispatch selection event
+- optional filter/sort functions (or respond to reusable search/sort events if implemented)
+
+---
+
+### E. Shared CSS (optional but recommended)
+File:
+- `search_modal_shared.css`
+
+Responsibilities:
+- Make Toys + Members modals look consistent
+- Avoid conflicts with global CSS by scoping global table and modal rules
+
+---
+
+## 3) Standard event contract
+
+All modals use the same events. Each event includes `detail.modalId` so handlers can ignore events from other modals.
+
+### 3.1 `modal:tableLoadRequest`
+**Dispatched by:** `reusable_search_modal.js` when the modal opens  
+**Payload:** `{ modalId }`
+
+**Handled by:** entity fetch file (e.g., `membersearchtableview-fetch.js`)  
+**Action:** load list data and render table
+
+---
+
+### 3.2 `modal:rowSelected`
+**Dispatched by:** entity fetch file when user clicks a row  
+**Payload:** `{ modalId, selected, record }`
+
+**Handled by:** `reusable_search_modal.js`  
+**Action:** enable/disable Select button
+
+---
+
+### 3.3 `modal:confirmSelection`
+**Dispatched by:** `reusable_search_modal.js` when Select button is clicked  
+**Payload:** `{ modalId }`
+
+**Handled by:** entity fetch file  
+**Action:** fetch full record, save to storage, dispatch update events, etc.
+
+---
+
+### 3.4 (Recommended) `modal:dataUpdated`
+**Dispatched by:** entity fetch file after confirm selection succeeds  
+**Payload:** `{ modalId, record }`
+
+**Handled by:** your form code (or a reusable “fill fields” module)  
+**Action:** update the form/UI with selected record
+
+> Compatibility: entity fetch file can also dispatch legacy events like
+> `toyDataUpdated` or `memberDataUpdated` so existing pages keep working.
+
+---
+
+## 4) Typical flow (step-by-step)
+
+### Step 1: User clicks "Search..." button on the page
+A page-level function calls:
+- `showToysMainSearchModal()` OR `showMemberSearchModal()`
+
+### Step 2: Modal is loaded and shown
+`createSearchModalController().show()` does:
+
+1. `ensureLoaded()`
+   - fetch include HTML
+   - insert HTML into `<body>`
+   - dispatch `readyEvent` (e.g., `memberModalReady`)
+   - load module scripts listed in `scripts[]` only once
+
+2. shows modal (remove `.hidden`)
+3. binds close/select handlers (bindOnce)
+4. focuses search field (autofocus)
+5. dispatches:
+   - `modal:tableLoadRequest` (after `tableLoadDelayMs`, default 100ms)
+
+### Step 3: Entity fetch file loads data
+Entity fetch file listens for `modal:tableLoadRequest` and calls:
+- `loadMembers()` or `loadToys()`
+
+It:
+- fetches list from servlet
+- sets `allX`, `filteredX`, clears selection
+- calls `renderTable(filteredX)`
+- dispatches `modal:rowSelected` with `{ selected:false }` to keep Select disabled
+
+### Step 4: User clicks a row
+Entity fetch file `selectRow()`:
+- highlights row with `.selected`
+- sets `selectedX = filteredX[index]`
+- dispatches `modal:rowSelected` with `{ selected:true, record:selectedX }`
+
+Reusable modal controller:
+- receives `modal:rowSelected`
+- enables the Select button
+
+### Step 5: User clicks Select
+Reusable modal controller:
+- dispatches `modal:confirmSelection { modalId }`
+- closes the modal
+
+Entity fetch file:
+- receives `modal:confirmSelection`
+- fetches full record details (e.g., `/getmember?cardNumber=...`)
+- saves selected record:
+  - standardized: `localStorage.setItem("modal:selectedRecord:{modalId}", ...)`
+  - optional legacy keys (e.g., `selectedMember`)
+- dispatches:
+  - `modal:dataUpdated { modalId, record }`
+  - optional legacy event (e.g., `memberDataUpdated`)
+
+Page form code:
+- listens to `modal:dataUpdated` (or legacy events)
+- updates fields
+
+---
+
+## 5) Adding a NEW search modal (checklist)
+
+1. **Create include HTML**
+   - Root `<div id="NEW_MODAL_ID" class="modal hidden" ...>`
+   - Must include:
+     - `#searchFieldModal`
+     - `#closeButtonModal`
+     - `#selectButtonModal`
+     - `<tbody id="tableBodyModal">`
+   - Add `<th data-column="...">` attributes for columns that can be sorted
+
+2. **Create new entry file**
+   - `newthing_search_modal.entry.js`
+   - Set:
+     - `modalId: "NEW_MODAL_ID"`
+     - `includePath: "...NEW_INCLUDE.html"`
+     - `scripts[]`: fetch controller, (search/sort modules if used), scroll utility
+     - `readyEvent: "newThingModalReady"`
+
+3. **Create new fetch controller**
+   - `newthingsearchtableview-fetch.js`
+   - Set `const MODAL_ID = "NEW_MODAL_ID"`
+   - Add listeners:
+     - `modal:tableLoadRequest` -> `loadNewThing()`
+     - `modal:confirmSelection` -> fetch full record + dispatch updates
+   - Implement:
+     - `renderTable()` -> writes rows into `#tableBodyModal`
+     - `selectRow()` -> dispatch `modal:rowSelected`
+
+4. **Add show function**
+   - export and attach to `window`:
+     - `window.showNewThingSearchModal = showNewThingSearchModal;`
+
+5. **CSS**
+   - Ensure shared modal CSS is loaded globally
+   - Avoid global table styling leaks by scoping general table rules (recommended)
+
+---
+
+## 6) Common pitfalls / debugging tips
+
+- **Modal never loads**: check `includePath` and browser Network tab.
+- **Modal opens but table never fills**:
+  - confirm entity fetch file is in `scripts[]`
+  - confirm it listens to `modal:tableLoadRequest`
+  - confirm `modalId` matches include’s root `<div id="...">`
+- **Select button never enables**:
+  - ensure fetch file dispatches `modal:rowSelected`
+  - ensure reusable modal listens and modalId matches
+- **Clicking row selects wrong record**:
+  - usually caused by DOM sorting without updating `filteredX` and `data-index`
+  - fix by sorting the array and re-rendering
+- **Styling differs between modals**:
+  - usually global `table/th/td` rules in `original.css` leaking into modals
+  - fix by scoping those rules to `.main_layout` (recommended)
+
+---
