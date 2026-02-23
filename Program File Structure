@@ -1,0 +1,151 @@
+# File Structure Notes (2026-02-23)
+
+This document summarizes today’s discussion about file organization for the web app (no bundler/framework planned) and how to keep the project understandable for the next maintainer.
+
+---
+
+## 1) Current state (what’s already good)
+
+### HTML / Views
+Your HTML structure is already understandable and close to feature-first:
+
+- `views/scene.backroom/` (backroom pages)
+- `views/scene.main/` (main pages)
+- `views/scene.counter/`, `views/scene.init/`, etc.
+- `views/scene.modal.include/` (modal HTML fragments / includes)
+
+This is good because it groups pages/fragments by “what part of the app it is” (a user-facing feature/area).
+
+### Search modal subsystem has grown
+You now have enough files around “modal search” (entries, reusable controller, shared search/sort, entity controllers, CSS) that it deserves a dedicated folder.
+
+---
+
+## 2) Key concept: Feature-first vs Type-first
+
+### Type-first (group by what it is)
+Examples:
+- `js/dbscripts/`
+- `js/util/`
+- `js/util.modal/`
+- `css/`
+- `views/`
+
+Pros:
+- easy at first
+Cons:
+- feature code gets scattered across many folders
+- harder for a new maintainer to find “all the code for Games” or “all the code for Members search”
+
+### Feature-first (group by what it does for the user / business domain)
+A *feature* is a domain like:
+- `games`, `employees`, `members`, `toys`, `vouchers`, `timeclock`, `cafe`, `bridge`, etc.
+
+Pros:
+- when someone asks “where is Games implemented?”, there’s a single place to look
+- scales better as each feature grows (you said each feature will have multiple HTML files and related JS)
+
+---
+
+## 3) Recommended approach for this project: Hybrid (Feature-first + Shared utilities)
+
+We concluded the best maintainable approach (especially without a bundler) is a **hybrid**:
+
+### A) Feature folders for feature-specific code
+If a file exists because a feature exists, it belongs with that feature.
+
+Examples:
+- `gamessearchtableview-fetch.js`
+- `employee_search_modal.entry.js`
+- `member-search-fillfields.js`
+- feature-specific modal fetch/controller scripts
+
+### B) Shared / util folders for truly reusable code
+If a file would still exist even if you deleted the Games feature entirely, it is “shared”.
+
+Examples:
+- `reusable_search_modal.js` (modal controller)
+- `reusable_table_search.js` (search binding)
+- `reusable_table_sort.js` (sort binding)
+- navigation helpers
+- generic table scroll helpers
+
+**Rule of thumb:**
+> If deleting a feature would make the file unused, it’s feature code. Otherwise it’s shared.
+
+This mirrors what you already did in JavaFX:
+- feature packages like `models.games`, `reports.games`
+- utility packages like `UtilConnections`, `sceneChangerFX`
+
+---
+
+## 4) Dedicated folder for “modal search” is recommended
+
+Because search modals will increase over time, a dedicated folder keeps it from polluting generic `util.modal` or `dbscripts`.
+
+### Suggested shared modal-search system folder
+Example:
+```
+js/shared/modal-search/
+  core/
+    reusable_search_modal.js
+  shared/
+    reusable_table_search.js
+    reusable_table_sort.js
+  docs/
+    modal-search-flow.md
+```
+
+### Suggested feature-specific modal implementations
+Example:
+```
+js/features/members/search-modal/
+js/features/toys/search-modal/
+js/features/games/search-modal/
+js/features/employees/search-modal/
+```
+
+---
+
+## 5) Next two search modals planned
+
+You stated the next two search modals will be:
+
+- `games-modal-search`
+- `employee-modal-search`
+
+Recommendation:
+- implement them directly using the new hybrid structure (feature folder + shared modal-search system).
+
+---
+
+## 6) Keeping includes together vs splitting by feature
+
+We discussed that your current includes location is already clear:
+
+- `views/scene.modal.include/`
+
+Recommendation:
+- keep this as-is for now
+- optionally split by feature later if it gets too large (not necessary yet)
+
+---
+
+## 7) General maintenance guidance
+
+1. Avoid letting `util.*` become a “junk drawer”.
+2. When a subsystem grows (like modal-search), give it its own folder + README/doc.
+3. Prefer consistent naming conventions across features:
+   - `modalId`, include name, entry name, fetch/controller name, `readyEvent`
+
+---
+
+## 8) Summary decision
+
+- Keep HTML organization: it is already clear and feature-oriented.
+- For JS: move toward a **hybrid structure**:
+  - **feature-specific scripts grouped by feature**
+  - **shared utilities grouped by reuse**
+- Create a dedicated **modal-search** shared subsystem folder, and keep unrelated modals separate.
+
+---
