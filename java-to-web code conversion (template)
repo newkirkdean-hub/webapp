@@ -1,0 +1,38 @@
+# Java-to-Web code Conversion (Template)
+
+Use this checklist each time you want to convert a Java method/workflow into the web app.
+
+## 1) Old Java method (source of truth)
+- Paste the full Java method (or the relevant portion).
+- Include any related helper methods if they affect flow/conditions.
+
+## 2) Target web UI (HTML snippet)
+- Paste the relevant part of the HTML page (fields/buttons involved).
+- Include element IDs and any groups that are shown/hidden.
+
+## 3) Mapping list (Java control → DOM element / action)
+Examples:
+- `vAmountField` → `#vAmountField`
+- `addingField` → `#addingField`
+- `cBoxReason` → `#reasonForVoucher`
+- `printButton.fire()` → `document.getElementById("printButton").click()`
+
+## 4) Rules / edge cases (behavior requirements)
+Examples:
+- “length > 9 means scanned code”
+- “reason must pop up immediately when combining”
+- “if user types any letters, stop process, alert, clear field, refocus”
+- “Enter must not submit the form”
+
+## 5) External dependencies (needed to implement logic)
+Provide code or interfaces for:
+- fetch functions (inputs/outputs)
+- servlet endpoints
+- XML/JSON inputs and formats
+- localStorage keys used
+
+## 6) Definition of done (test sequences)
+Write 2–6 short “user does X → expects Y” flows, e.g.:
+- Scan voucher A → multiple vouchers group shows → addingField updates → cursor returns to voucher field
+- Scan voucher B → reason prompt appears immediately → Enter on reason triggers print
+- Type `1d1d53` → invalid alert → field cleared → focus returns to voucher field
