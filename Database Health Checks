@@ -1,0 +1,95 @@
+# Database Health Checks (Tomcat + UCanAccess + MS Access)
+
+Purpose: keep a small set of simple endpoints that we can run from the app’s “Database” page (behind the employee supervisor password) to quickly diagnose MS Access connectivity problems.
+
+These checks are intentionally small and self-contained so we can reuse them whenever:
+- the app “looks connected” but doesn’t persist data
+- performance suddenly gets slow
+- jar/classpath versions change (Tomcat/lib vs WAR/WEB-INF/lib)
+- we want a repeatable way to prove pooling is working
+
+---
+
+## Package / location
+
+Java package:
+- `com.database.health`
+
+Suggested source folder:
+- `src/main/java/com/database/health/`
+
+Endpoints:
+- `/health/dbRead`
+- `/health/dbSignature`
+- `/health/dbMeta`
+
+---
+
+## Endpoints
+
+### 1) `/health/dbRead` (read-only)
+**Class:** `DbReadHealthServlet`
+
+Runs a minimal `SELECT 1` using the JNDI DataSource:
+- proves JNDI lookup works (`java:comp/env/jdbc/dbServlet`)
+- proves a connection can be opened from the pool
+- proves a simple query can run
+
+**No writes** are performed.
+
+---
+
+### 2) `/health/dbSignature` (write + verify)
+**Class:** `DbSignatureHealthServlet`
+
+Creates a small table (if missing) and inserts a unique token:
+- creates `DbSignature(Token, CreatedAt)` if it does not exist
+- inserts `Token = "sig-" + currentTimeMillis`
+- verifies the row exists immediately after insert
+
+This is the strongest proof that the webapp can *really write* to the `.accdb` file.
+
+**Note:** This endpoint will add a row each time it’s called. If you want to keep the table small later, we can add cleanup logic.
+
+---
+
+### 3) `/health/dbMeta` (diagnostics / versions)
+**Class:** `DbMetaHealthServlet`
+
+Returns:
+- JDBC URL
+- driver name/version
+- database product name/version
+- the *actual jar location* loaded for:
+  - `UCanAccessDriver`
+  - `Jackcess`
+  - `HSQLDB`
+
+This helps detect classpath problems like:
+- duplicate jars (Tomcat/lib + WEB-INF/lib)
+- unexpected versions getting loaded
+
+---
+
+## Security / access control
+
+These endpoints are intended for internal use only.
+
+Plan:
+- Add buttons on the home page “Database” section
+- Protect the page behind the employee supervisor password
+
+If we later need stronger protection, options include:
+- require a shared secret query param (e.g. `?key=...`)
+- restrict by IP to localhost / office LAN
+- disable in production builds
+
+---
+
+## Notes / history
+
+We previously observed a case where inserts appeared to succeed via JDBC but did not show up in Access / file timestamp.
+After updating and pinning dependency versions (UCanAccess + Jackcess + HSQLDB), and tuning the connection URL,
+pooling writes were verified to persist using `/health/dbSignature`.
+
+Keep this file updated when we add new DB health endpoints.
